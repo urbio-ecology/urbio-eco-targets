@@ -1,0 +1,164 @@
+---
+title: "Brief Exploration of results"
+author: "Nicholas Tierney"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+format: 
+  html:
+    code-fold: true
+    embed-resources: true
+    lightbox: true
+---
+
+```{r}
+#| label: setup
+#| include: false
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+## target knits qmds in their own session, so load libraries here.
+source(here::here("packages.R"))
+tar_source() # not always necessary
+```
+
+```{r}
+#| label: load-targets
+#| include: false
+with_dir(here(), {
+  tar_load(habitat_raster)
+  tar_load(barrier_raster)
+  tar_load(buffered_habitat)
+  tar_load(patch_id_raster)
+  tar_load(areas_connected)
+  tar_load(results_connect_habitat)
+  tar_load(buffer_distance)
+  tar_load(species_name)
+  tar_load(saved_spatraster)
+})
+```
+
+```{r}
+urbio_pal <- scico::scico(n = 11, palette = "tofino")
+urbio_pal_cut <- urbio_pal[c(6:11)]
+# urbio_pal_cut |> swatchplot()
+# habitat  = 3/4
+# buffer = 6
+# barrier = 1/2
+
+urbio_cols <- list(
+    habitat = urbio_pal_cut[2],
+    buffer = urbio_pal_cut[5],
+    barrier = col2hex("white")
+)
+
+## TODO for mdsumner - can we get a buffer/outline of the city boundaries
+```
+
+## Habitat, Buffered Habitat, and Barrier
+
+```{r}
+#| label: plot-barrier-habitat-buffer
+#| panel: tabset
+#| output: asis
+
+buffer_barrier_plots <- map2(
+  .x = buffered_habitat,
+  .y = buffer_distance,
+  .f = function(buffered_habitat, buffer_distance) {
+gg_barrier_habitat_buffer(
+  barrier = barrier_raster,
+  buffered = buffered_habitat,
+  habitat = habitat_raster,
+  distance = buffer_distance,
+  species_name = species_name,
+  col_barrier = urbio_cols$barrier,
+  col_buffer = urbio_cols$buffer,
+  col_habitat = urbio_cols$habitat,
+  col_paper = "grey96"
+) 
+  }
+) |> 
+  setNames(buffer_distance)
+
+show_tabs(buffer_barrier_plots, "Buffer: ")
+```
+
+## Patch ID
+
+```{r}
+#| label: plot-patches
+#| panel: tabset
+#| output: asis
+
+patch_plots <- map2(
+  .x = patch_id_raster,
+  .y = buffer_distance,
+  .f = \(x, y) plot_patches(patch_id = x, distance = y)
+  ) |> 
+  setNames(buffer_distance)
+
+show_tabs(patch_plots, message = "Buffer: ")
+```
+
+# Area and patch information for each buffer
+
+```{r}
+#| label: display-areas
+
+summary_dts <- areas_connected |> 
+  setNames(buffer_distance) |> 
+  bind_rows(
+    .id = "buffer"
+  ) |> 
+  datatable()
+
+summary_dts
+```
+
+## Prob connectedness and summary information for each buffer
+
+```{r}
+results_connect_habitat |> datatable()
+```
+
+## Longer: Prob connectedness and summary information for each buffer
+
+```{r}
+results_connect_habitat |> 
+pivot_longer(
+    cols = -c(species_name,
+              buffer_distance)
+  ) |> 
+  datatable(
+    options = list(
+      pageLength = 8L
+    )
+  )
+```
+
+## Visualisation of changes in key stats over buffer distance
+
+```{r}
+#| fig-height: 10
+plot_connectivity(results_connect_habitat)
+```
+
+
+## Running time
+
+It is useful to understand how long the pipeline takes, let's take a look at the timing of some key targets
+
+```{r}
+#| label: running-time
+target_timings <- tar_meta() |> dplyr::select(name, bytes, seconds)
+
+target_timings |>
+  drop_na() |>
+  arrange(desc(seconds)) |>
+  mutate(
+    bytes_pretty = pretty_bytes(bytes),
+    .after = bytes
+  ) |>
+  rename(
+    target_name = name,
+    runtime_seconds = seconds
+  ) |>
+  datatable()
+```
