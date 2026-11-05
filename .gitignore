@@ -41,6 +41,9 @@ _targets/
 # html
 *.html
 
+# plots the pipeline writes
+doc/plot-barrier-interpatch-distance-habitat-*.png
+
 # renv via capsule
 renv/
 .Rproj.user
