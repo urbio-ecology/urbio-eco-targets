@@ -24,49 +24,22 @@ tar_assign({
   barrier <- read_geometry(barrier_file) |> st_as_sf() |> tar_target()
   habitat <- rast(habitat_file) |> tar_terra_rast()
 
-  species_name <- tar_target("Blue-Tongued-Lizard")
-  target_resolution <- tar_target(500)
+  species <- tar_target("Blue-tongued Lizard")
   data_resolution <- tar_target(10)
-  aggregation_factor <- tar_target(target_resolution / data_resolution)
-  buffer_distance <- tar_target(100)
+  interpatch_distance <- tar_target(c(40, 100, 200))
 
-  barrier_rasterised <- terra::rasterize(
-    x = barrier,
-    y = terra::rast(
-      x = ext(habitat),
-      res = data_resolution,
-      crs = crs(habitat)
-    ),
+  # the two steps prepare_rasters() takes, so each layer is its own target
+  habitat_raster <- onto_grid(
+    layer = habitat,
+    grid = empty_grid(habitat, resolution = data_resolution),
+    background = NA
+  ) |>
+    tar_terra_rast()
+  barrier_raster <- onto_grid(
+    layer = barrier,
+    grid = habitat_raster,
     background = 0
   ) |>
-    tar_terra_rast()
-
-  # aggregate rasters to make them the size of the overlay raster
-  ## could generate an empty raster with this resolution instead of using
-  ## barrier data directly - we could instead do raster of this grid spec
-  coarse_raster <- terra::aggregate(
-    barrier_rasterised * 0,
-    aggregation_factor
-  ) |>
-    tar_terra_rast()
-
-  ## making the grid finer
-  coarse_template <- terra::disagg(coarse_raster, aggregation_factor) |>
-    tar_terra_rast()
-  ## terra resample or project could help us get to these different resolutions
-  ## terra resample by util
-
-  ## again, we could get around this by specifying a grid spec
-  ## make sure the extent snaps to the right shape
-  ## so give it the extent and resolution
-  ## with the extent and the resolution, make sure that they snap together
-  ## terra::rast(nrow = ..., ncol = ..., extent)
-  habitat_raster <- terra::extend(
-    x = habitat,
-    y = coarse_template
-  ) |>
-    tar_terra_rast()
-  barrier_raster <- terra::extend(barrier_rasterised, coarse_template) |>
     tar_terra_rast()
 
   barrier_mask <- create_barrier_mask(barrier = barrier_raster) |>
@@ -80,10 +53,10 @@ tar_assign({
 
   buffered_habitat <- habitat_buffer(
     habitat = remaining_habitat,
-    distance = buffer_distance
+    buffer_radius = interpatch_distance / 2
   ) |>
     tar_terra_rast(
-      pattern = map(buffer_distance)
+      pattern = map(interpatch_distance)
     )
 
   # apply barriers to get the fragmentation
@@ -106,65 +79,32 @@ tar_assign({
       pattern = map(fragmentation_raster)
     )
 
-  # or as one step
-  areas_connected <- habitat_connectivity(
-    habitat = habitat_raster,
-    barrier = barrier_raster,
-    distance = buffer_distance
-  ) |>
+  patch_areas <- aggregate_connected_patches(patch_id_raster) |>
     tar_target(
-      pattern = map(buffer_distance),
-      iteration = "list"
+      pattern = map(patch_id_raster)
     )
 
-  results_connect_habitat <- summarise_connectivity(
-    area_squared = areas_connected$area_squared,
-    area_total = areas_connected$area,
-    buffer_distance = buffer_distance,
-    target_resolution = target_resolution,
-    data_resolution = data_resolution,
-    aggregation_factor = aggregation_factor,
-    species_name = species_name
+  connectivity <- patch_size_tbl(
+    data = patch_areas,
+    species = species,
+    interpatch_distance = interpatch_distance,
+    res = terra::res(habitat_raster)
   ) |>
+    summarise_connectivity() |>
     tar_target(
-      pattern = map(areas_connected, buffer_distance)
+      pattern = map(patch_areas, interpatch_distance)
     )
 
-  # some of the palettes that we liked:
-  # scico::scico_palette_show(
-  #     palettes = c("cork",
-  #                  "bam",
-  #                  "tofino",
-  #                  "navia",
-  #                  "vanimo")
-  # )
-
-  urbio_pal <- scico(n = 11, palette = "tofino") |>
-    vec_slice(c(7, 10)) |>
-    # add white
-    c(col2hex("white")) |>
-    tar_target()
-
-  urbio_cols <- list(
-    habitat = urbio_pal[1],
-    buffer = urbio_pal[2],
-    barrier = urbio_pal[3]
-  ) |>
-    tar_target()
-
-  saved_spatraster <- plot_barrier_habitat_buffer(
+  barrier_plots <- write_barrier_habitat_plot(
+    dir = "doc",
     barrier = barrier_raster,
     buffered = buffered_habitat,
     habitat = habitat_raster,
-    distance = buffer_distance,
-    species_name = species_name,
-    col_barrier = urbio_cols$barrier,
-    col_buffer = urbio_cols$buffer,
-    col_habitat = urbio_cols$habitat,
-    col_paper = "grey96"
+    interpatch_distance = interpatch_distance,
+    species = species
   ) |>
     tar_file(
-      pattern = map(buffered_habitat, buffer_distance)
+      pattern = map(buffered_habitat, interpatch_distance)
     )
 
   ## TODO query this from @mdsumner
@@ -178,5 +118,9 @@ tar_assign({
   # that is at a very high level of details which we do not need
   # buffer the habitat by distance
 
-  explore_doc <- tar_quarto(path = "doc/explore.qmd", quiet = FALSE)
+  explore_doc <- tar_quarto(
+    path = "doc/explore.qmd",
+    extra_files = "R/show_tabs.R",
+    quiet = FALSE
+  )
 })
