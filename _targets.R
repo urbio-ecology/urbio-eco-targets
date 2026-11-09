@@ -17,28 +17,14 @@ tar_option_set(
 
 ## Assign like regular R, just make sure to pipe into a tar_ operation
 tar_assign({
-  barrier_file <- "data/lizard/lizard_barrier.shp" |> tar_file()
+  barrier_file <- "data/lizard/lizard_barrier_raster.tif" |> tar_file()
   habitat_file <- "data/lizard/lizard_habitat_raster.tif" |> tar_file()
-  barrier <- read_geometry(barrier_file) |> st_as_sf() |> tar_target()
-  habitat <- rast(habitat_file) |> tar_terra_rast()
+  # both layers are on one grid, so neither needs onto_grid()
+  barrier_raster <- rast(barrier_file) |> tar_terra_rast()
+  habitat_raster <- rast(habitat_file) |> tar_terra_rast()
 
   species <- tar_target("Blue-tongued Lizard")
-  data_resolution <- tar_target(10)
   interpatch_distance <- tar_target(c(40, 100, 200))
-
-  # the two steps prepare_rasters() takes, so each layer is its own target
-  habitat_raster <- onto_grid(
-    layer = habitat,
-    grid = empty_grid(habitat, resolution = data_resolution),
-    background = NA
-  ) |>
-    tar_terra_rast()
-  barrier_raster <- onto_grid(
-    layer = barrier,
-    grid = habitat_raster,
-    background = 0
-  ) |>
-    tar_terra_rast()
 
   barrier_mask <- create_barrier_mask(barrier = barrier_raster) |>
     tar_terra_rast()
