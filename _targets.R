@@ -17,10 +17,8 @@ tar_option_set(
 
 ## Assign like regular R, just make sure to pipe into a tar_ operation
 tar_assign({
-  barrier_file <- tar_file(here(
-    "data/lizard/lizard_barrier.shp"
-  ))
-  habitat_file <- tar_file(here("data/lizard/lizard_habitat_raster.tif"))
+  barrier_file <- "data/lizard/lizard_barrier.shp" |> tar_file()
+  habitat_file <- "data/lizard/lizard_habitat_raster.tif" |> tar_file()
   barrier <- read_geometry(barrier_file) |> st_as_sf() |> tar_target()
   habitat <- rast(habitat_file) |> tar_terra_rast()
 
